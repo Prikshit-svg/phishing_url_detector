@@ -1,0 +1,7 @@
+batch,approach,f1,rows
+2,Static initial model,0.8308253533971728,6000
+2,Refit on prior batches,0.833943833943834,6000
+3,Static initial model,0.8317146951122433,6000
+3,Refit on prior batches,0.8274103585657371,6000
+4,Static initial model,0.8275351591413768,6000
+4,Refit on prior batches,0.8271581719014481,6000

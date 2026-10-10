@@ -1,0 +1,159 @@
+{
+  "audit": {
+    "rows_after_cleaning": 120000,
+    "duplicate_urls_removed": 0,
+    "class_counts": {
+      "0": 60000,
+      "1": 60000
+    },
+    "label_convention_assumed": {
+      "0": "legitimate",
+      "1": "phishing"
+    },
+    "label_source_verified": false,
+    "warning": "The pipeline cannot verify ground-truth labels; confirm the dataset source and label convention."
+  },
+  "split_method": "GroupShuffleSplit by approximate registrable domain (20% test)",
+  "selected_model": "Random Forest",
+  "feature_count": 30,
+  "features": [
+    "url_length",
+    "domain_length",
+    "path_length",
+    "num_dots",
+    "num_hyphens",
+    "num_underscores",
+    "num_slashes",
+    "num_question_marks",
+    "num_equal_signs",
+    "num_at_signs",
+    "num_ampersands",
+    "num_percent",
+    "num_digits",
+    "num_subdomains",
+    "url_entropy",
+    "domain_entropy",
+    "digit_ratio",
+    "has_ip",
+    "has_port",
+    "is_shortened",
+    "has_suspicious_word",
+    "has_double_slash",
+    "has_prefix_suffix",
+    "path_depth",
+    "is_common_tld",
+    "is_suspicious_tld",
+    "brand_impersonation",
+    "num_suspicious_words",
+    "digits_in_domain",
+    "long_domain"
+  ],
+  "model_fit_rows": 45000,
+  "validation_comparison": [
+    {
+      "Model": "Random Forest",
+      "Validation Accuracy": 0.8676570948606226,
+      "Validation Precision": 0.8555934304307407,
+      "Validation Recall": 0.880608122475016,
+      "Validation F1": 0.867920574212815,
+      "Validation ROC-AUC": 0.9418974319193506,
+      "Validation Average Precision": 0.9381257161225868,
+      "Validation Brier Score": 0.09701384291989926
+    },
+    {
+      "Model": "Extra Trees",
+      "Validation Accuracy": 0.8417239750118116,
+      "Validation Precision": 0.8251755367864048,
+      "Validation Recall": 0.862109291941314,
+      "Validation F1": 0.843238184370613,
+      "Validation ROC-AUC": 0.922613696372799,
+      "Validation Average Precision": 0.9152083384550872,
+      "Validation Brier Score": 0.12525530757474837
+    },
+    {
+      "Model": "XGBoost",
+      "Validation Accuracy": 0.8405165625492151,
+      "Validation Precision": 0.8320817688777639,
+      "Validation Recall": 0.8481820114820328,
+      "Validation F1": 0.8400547541328841,
+      "Validation ROC-AUC": 0.9234874747825459,
+      "Validation Average Precision": 0.9207746086711416,
+      "Validation Brier Score": 0.11243873834609985
+    },
+    {
+      "Model": "Gradient Boosting",
+      "Validation Accuracy": 0.7890177962097747,
+      "Validation Precision": 0.7676637185729902,
+      "Validation Recall": 0.8212842866255582,
+      "Validation F1": 0.7935692639580872,
+      "Validation ROC-AUC": 0.8868245249738435,
+      "Validation Average Precision": 0.8800399825056071,
+      "Validation Brier Score": 0.14372556197320716
+    },
+    {
+      "Model": "Logistic Regression",
+      "Validation Accuracy": 0.7423486797207203,
+      "Validation Precision": 0.745524017467249,
+      "Validation Recall": 0.7260259408887944,
+      "Validation F1": 0.7356458041581385,
+      "Validation ROC-AUC": 0.8142916448488963,
+      "Validation Average Precision": 0.7767158703597679,
+      "Validation Brier Score": 0.17807403936523997
+    }
+  ],
+  "test_metrics": {
+    "accuracy": 0.8356424445611342,
+    "precision": 0.8204666570646695,
+    "recall": 0.878479450998535,
+    "f1": 0.8484825916961459,
+    "roc_auc": 0.9193568343901066,
+    "average_precision": 0.9243006794493431,
+    "brier_score": 0.11666151758632155,
+    "classification_report": {
+      "Legitimate": {
+        "precision": 0.8550271364179928,
+        "recall": 0.7885137427892772,
+        "f1-score": 0.8204245553643144,
+        "support": 11788.0
+      },
+      "Phishing": {
+        "precision": 0.8204666570646695,
+        "recall": 0.878479450998535,
+        "f1-score": 0.8484825916961459,
+        "support": 12969.0
+      },
+      "accuracy": 0.8356424445611342,
+      "macro avg": {
+        "precision": 0.8377468967413311,
+        "recall": 0.8334965968939061,
+        "f1-score": 0.8344535735302301,
+        "support": 24757.0
+      },
+      "weighted avg": {
+        "precision": 0.8369225657214928,
+        "recall": 0.8356424445611342,
+        "f1-score": 0.8351228093202673,
+        "support": 24757.0
+      }
+    },
+    "confusion_matrix": [
+      [
+        9295,
+        2493
+      ],
+      [
+        1576,
+        11393
+      ]
+    ],
+    "test_rows": 24757,
+    "test_phishing_prevalence": 0.5238518398836692
+  },
+  "adaptive_learning_note": "Synthetic group batches only; no timestamps were available.",
+  "warnings": [
+    "Predictions are based on lexical URL features only.",
+    "Predicted probabilities are not guaranteed to be calibrated.",
+    "Dataset ground-truth labels and label convention were not independently verified.",
+    "Threshold analysis is generated from validation predictions; the default threshold is 0.5."
+  ]
+}
