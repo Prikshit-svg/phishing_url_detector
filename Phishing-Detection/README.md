@@ -48,6 +48,9 @@ The script creates `best_model.pkl` and `artifacts/`, including:
 - `permutation_importance.png` and `permutation_importance.csv`.
 - `class_distribution.png`.
 - `adaptive_learning_experiment.csv` and `adaptive_learning.png` when the grouped batches support the experiment.
+- `cross_validation_folds.csv` and `cross_validation_summary.csv` — five-fold domain-grouped metrics (mean and standard deviation) on a bounded sample from the training partition.
+- `robustness_perturbations.csv` — held-out phishing recall and evasion rates after deterministic query, path, and subdomain edits.
+- `explanation_benchmark.json` — measured SHAP/LIME latency and five-seed LIME attribution cosine similarity, when the optional explainability packages run successfully.
 
 Model selection uses validation F1. The held-out test partition is used for final reporting and graphs, not model selection. The domain grouping is an approximation and may not correctly identify all registrable domains; a Public Suffix List and an external, timestamped test set are recommended for stronger evaluation.
 
@@ -89,6 +92,8 @@ The URL Analysis page now includes additional evidence views alongside the proba
 - **Explanation sensitivity:** cosine similarity of SHAP contribution vectors for the original URL and controlled path/query variants. These are distinct URLs and the chart is not a guarantee of robustness.
 
 The Model Evaluation page also includes performance by overlapping URL categories when the subgroup artifact is available. Category metrics are descriptive and should be interpreted alongside sample counts.
+
+The evaluation dashboard also reports five-fold domain-grouped cross-validation, controlled URL perturbation results, and SHAP/LIME latency with LIME repeatability. Cross-validation is bounded to 25,000 training rows for practical local runs; it is not a substitute for an independent external benchmark. Perturbation results describe only the specified lexical edits. CNN/LSTM and third-party filter comparisons are not reported because this project does not include those implementations or matched published benchmark measurements.
 
 ### Research interpretation cautions
 

@@ -373,9 +373,12 @@ def lime_fig(model, X1, cols, Xtrain):
         discretize_continuous=True
     )
 
+    def predict_named(values):
+        return model.predict_proba(pd.DataFrame(values, columns=cols))
+
     e = ex.explain_instance(
         X1.values[0],
-        model.predict_proba,
+        predict_named,
         num_features=8
     )
 
@@ -655,6 +658,29 @@ def evaluation_dashboard():
     st.write(f"**Selected model:** {report.get('selected_model', 'Unknown')}")
     st.write(f"**Evaluation split:** {report.get('split_method', 'Not recorded')}")
     st.warning("Dataset labels have not been independently verified. A domain-grouped split reduces some leakage, but it is not a substitute for a timestamped external test set.")
+    st.subheader("Five-fold domain-grouped cross-validation")
+    cv_rows = report.get('cross_validation', [])
+    if cv_rows:
+        st.dataframe(pd.DataFrame(cv_rows), width='stretch', hide_index=True)
+        st.caption("Mean and standard deviation are computed across folds on a bounded training-only sample; the held-out test set was not used for selection.")
+    else:
+        st.info("Cross-validation results are unavailable. Run train.py to generate them.")
+    st.subheader("Controlled URL perturbations")
+    perturb_rows = report.get('robustness_perturbations', [])
+    if perturb_rows:
+        st.dataframe(pd.DataFrame(perturb_rows), width='stretch', hide_index=True)
+        st.caption("These deterministic lexical edits are a limited stress test, not a claim that edited URLs preserve the same destination or behavior.")
+    else:
+        st.info("Perturbation results are unavailable. Run train.py to generate them.")
+    bench = report.get('explainability_benchmark', {})
+    if bench:
+        st.subheader("Explanation cost and stability")
+        b1, b2, b3 = st.columns(3)
+        b1.metric("SHAP latency", f"{bench['shap_latency_ms_per_url']:.1f} ms/URL" if 'shap_latency_ms_per_url' in bench else "Unavailable")
+        b2.metric("LIME latency", f"{bench['lime_latency_ms_per_url']:.1f} ms/URL" if 'lime_latency_ms_per_url' in bench else "Unavailable")
+        b3.metric("LIME repeat cosine", f"{bench['lime_mean_pairwise_cosine_similarity']:.3f}" if bench.get('lime_mean_pairwise_cosine_similarity') is not None else "Unavailable")
+        st.caption("Latency depends on hardware and package versions. LIME stability is mean pairwise cosine similarity across five seeded runs for each sampled URL.")
+    st.caption(report.get('baseline_comparison_note', ''))
     graph_names = [
         ("model_comparison.png", "Validation model comparison"),
         ("roc_curves.png", "ROC curves"),
@@ -674,7 +700,7 @@ def evaluation_dashboard():
             with col:
                 if os.path.exists(full):
                     st.subheader(title)
-                    st.image(full, use_container_width=True)
+                    st.image(full, width='stretch')
                 elif path == "adaptive_learning.png":
                     st.info("Adaptive-learning graph was not generated for this dataset split.")
     with st.expander("Evaluation caveats and full metrics"):
@@ -1191,7 +1217,7 @@ def main():
                         "Value"
                     ]
                 ),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True
             )
 

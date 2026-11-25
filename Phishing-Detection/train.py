@@ -20,11 +20,13 @@ from sklearn.metrics import (accuracy_score, average_precision_score, brier_scor
     classification_report, confusion_matrix, ConfusionMatrixDisplay, f1_score,
     precision_score, recall_score, roc_auc_score, roc_curve, precision_recall_curve,
     auc)
-from sklearn.model_selection import GroupShuffleSplit, train_test_split
+from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.calibration import calibration_curve
 from sklearn.utils import resample
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+import time
 
 from features import extract_features, feature_names
 
@@ -104,6 +106,135 @@ def _savefig(fig, name):
     return path
 
 
+def grouped_cross_validation(models, X, y, groups, max_rows=25000):
+    """Five-fold domain-grouped CV on a bounded, training-only sample."""
+    if len(X) > max_rows:
+        idx, _ = train_test_split(np.arange(len(y)), train_size=max_rows,
+            random_state=RANDOM_STATE, stratify=y)
+        X, y, groups = X.iloc[idx], y.iloc[idx], groups.iloc[idx]
+    folds = min(5, groups.nunique())
+    if folds < 2:
+        return pd.DataFrame()
+    splitter = StratifiedGroupKFold(n_splits=folds, shuffle=True, random_state=RANDOM_STATE)
+    rows = []
+    for name, prototype in models.items():
+        for fold, (tr, va) in enumerate(splitter.split(X, y, groups), start=1):
+            model = make_models()[name]
+            model.fit(X.iloc[tr], y.iloc[tr])
+            p = model.predict_proba(X.iloc[va])[:, 1]
+            pred = (p >= .5).astype(int)
+            rows.append({'Model': name, 'Fold': fold,
+                'Accuracy': accuracy_score(y.iloc[va], pred),
+                'Precision': precision_score(y.iloc[va], pred, zero_division=0),
+                'Recall': recall_score(y.iloc[va], pred, zero_division=0),
+                'F1': f1_score(y.iloc[va], pred, zero_division=0),
+                'ROC-AUC': roc_auc_score(y.iloc[va], p) if y.iloc[va].nunique() == 2 else np.nan})
+    raw = pd.DataFrame(rows)
+    raw.to_csv(os.path.join(ARTIFACT_DIR, 'cross_validation_folds.csv'), index=False)
+    summary = raw.groupby('Model').agg(['mean', 'std'])
+    summary.columns = [f'{metric} {stat}' for metric, stat in summary.columns]
+    summary.reset_index().to_csv(os.path.join(ARTIFACT_DIR, 'cross_validation_summary.csv'), index=False)
+    return summary.reset_index()
+
+
+def perturb_url(url, attack):
+    """Deterministic lexical perturbations; they do not fetch or resolve URLs."""
+    value = str(url)
+    candidate = value if '://' in value else 'http://' + value
+    parts = urlsplit(candidate)
+    if attack == 'benign_query_parameter':
+        query = parse_qsl(parts.query, keep_blank_values=True)
+        query.append(('ref', 'google'))
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+    if attack == 'path_padding':
+        return urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip('/') + '/home/index.html', parts.query, parts.fragment))
+    if attack == 'dummy_subdomain':
+        host = parts.hostname or ''
+        try:
+            port = f':{parts.port}' if parts.port else ''
+        except ValueError:
+            port = ''
+        user = f'{parts.username}@' if parts.username else ''
+        return urlunsplit((parts.scheme, f'{user}safe.{host}{port}', parts.path, parts.query, parts.fragment))
+    return value
+
+
+def robustness_evaluation(model, X_test, y_test, urls, threshold=.5, max_rows=2000):
+    """Report detection change under controlled edits for malicious holdout URLs."""
+    idx = np.flatnonzero(y_test.to_numpy() == 1)[:max_rows]
+    if not len(idx):
+        return pd.DataFrame()
+    original_urls = urls.iloc[idx].tolist()
+    base_X = pd.DataFrame([extract_features(u) for u in original_urls])
+    base_p = model.predict_proba(base_X)[:, 1]
+    rows = []
+    for attack in ['benign_query_parameter', 'path_padding', 'dummy_subdomain']:
+        variants = [perturb_url(u, attack) for u in original_urls]
+        variant_X = pd.DataFrame([extract_features(u) for u in variants])
+        probs = model.predict_proba(variant_X)[:, 1]
+        initially_detected = base_p >= threshold
+        rows.append({'attack': attack, 'n': len(idx),
+            'baseline_recall': float(np.mean(initially_detected)),
+            'perturbed_recall': float(np.mean(probs >= threshold)),
+            'evasion_rate_among_baseline_detected': float(np.mean(probs[initially_detected] < threshold)) if initially_detected.any() else 0.0,
+            'mean_probability_delta': float(np.mean(probs - base_p))})
+    result = pd.DataFrame(rows)
+    result.to_csv(os.path.join(ARTIFACT_DIR, 'robustness_perturbations.csv'), index=False)
+    return result
+
+
+def explanation_benchmark(model, X_reference, X_eval, max_rows=10, repeats=5):
+    """Measure local explainer latency and LIME attribution repeatability."""
+    result = {'sample_urls': int(min(max_rows, len(X_eval))), 'lime_repeats': repeats}
+    sample = X_eval.iloc[:max_rows].to_numpy(dtype=float)
+    try:
+        import shap
+        explainer = shap.TreeExplainer(model)
+        started = time.perf_counter()
+        values = explainer.shap_values(X_eval.iloc[:max_rows])
+        elapsed = time.perf_counter() - started
+        if isinstance(values, list):
+            values = values[1] if len(values) > 1 else values[0]
+        values = np.asarray(values)
+        if values.ndim == 3:
+            values = values[:, :, -1]
+        result['shap_latency_ms_per_url'] = float(elapsed * 1000 / max(1, len(sample)))
+    except Exception as exc:
+        result['shap_error'] = str(exc)
+    try:
+        from lime.lime_tabular import LimeTabularExplainer
+        names = list(X_reference.columns)
+        vectors, durations = [], []
+        for seed in range(repeats):
+            explainer = LimeTabularExplainer(X_reference.to_numpy(dtype=float),
+                feature_names=names, class_names=['legitimate', 'phishing'],
+                mode='classification', discretize_continuous=False, random_state=seed)
+            for row in sample[:min(5, len(sample))]:
+                start = time.perf_counter()
+                explanation = explainer.explain_instance(row, model.predict_proba,
+                    num_features=len(names), num_samples=300)
+                durations.append((time.perf_counter() - start) * 1000)
+                dense = np.zeros(len(names), dtype=float)
+                for feature_idx, weight in explanation.as_map().get(1, []):
+                    dense[feature_idx] = weight
+                vectors.append(dense)
+        groups = np.asarray(vectors).reshape(repeats, -1, len(names))
+        similarities = []
+        for row_idx in range(groups.shape[1]):
+            for i in range(repeats):
+                for j in range(i + 1, repeats):
+                    a, b = groups[i, row_idx], groups[j, row_idx]
+                    denom = np.linalg.norm(a) * np.linalg.norm(b)
+                    similarities.append(float(np.dot(a, b) / denom) if denom else float(np.allclose(a, b)))
+        result['lime_latency_ms_per_url'] = float(np.mean(durations))
+        result['lime_mean_pairwise_cosine_similarity'] = float(np.mean(similarities)) if similarities else None
+    except Exception as exc:
+        result['lime_error'] = str(exc)
+    with open(os.path.join(ARTIFACT_DIR, 'explanation_benchmark.json'), 'w') as handle:
+        json.dump(result, handle, indent=2)
+    return result
+
+
 def train(data_path=None):
     data_path = data_path or os.path.join(BASE_DIR, 'dataset.csv')
     os.makedirs(ARTIFACT_DIR, exist_ok=True)
@@ -134,6 +265,7 @@ def train(data_path=None):
         X_fit, y_fit = X_fit.iloc[fit_idx], y_fit.iloc[fit_idx]
 
     models = make_models()
+    cv_results = grouped_cross_validation(models, X_train_all, y_train_all, groups.iloc[train_idx])
     fitted, rows = {}, []
     for name, model in models.items():
         print(f'Training {name} on {len(X_fit):,} rows...', flush=True)
@@ -175,6 +307,8 @@ def train(data_path=None):
         'classification_report': classification_report(y_test, pred, target_names=LABEL_NAMES, output_dict=True, zero_division=0),
         'confusion_matrix': confusion_matrix(y_test, pred, labels=[0,1]).tolist(),
         'test_rows': int(len(y_test)), 'test_phishing_prevalence': float(y_test.mean())}
+    robustness = robustness_evaluation(best_model, X_test, y_test, df['url'].iloc[test_idx].reset_index(drop=True))
+    explainability = explanation_benchmark(best_model, X_final, X_test, max_rows=10, repeats=5)
 
     # Plot 1: model comparison metrics (validation scores).
     metric_cols = ['Validation Precision','Validation Recall','Validation F1','Validation ROC-AUC','Validation Average Precision']
@@ -340,7 +474,11 @@ def train(data_path=None):
         pickle.dump(artifact, f)
     summary = {'audit':audit, 'split_method':split_method, 'selected_model':best_name,
         'feature_count':len(X.columns), 'features':list(X.columns), 'model_fit_rows':int(len(X_final)), 'validation_comparison':comparison.to_dict(orient='records'),
-        'test_metrics':test_metrics, 'adaptive_learning_note':'Synthetic group batches only; no timestamps were available.',
+        'test_metrics':test_metrics, 'cross_validation':cv_results.to_dict(orient='records'),
+        'robustness_perturbations':robustness.to_dict(orient='records'),
+        'explainability_benchmark':explainability,
+        'baseline_comparison_note':'CNN/LSTM and external heuristic or open-source detector results are not included because no implementations or matched public benchmark results are supplied; do not infer comparative superiority.',
+        'adaptive_learning_note':'Synthetic group batches only; no timestamps were available.',
         'warnings':artifact['notes']}
     with open(os.path.join(ARTIFACT_DIR, 'metrics.json'),'w') as f:
         json.dump(summary, f, indent=2)
